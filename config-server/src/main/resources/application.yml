@@ -8,7 +8,7 @@ spring:
     config:
       server:
         git:
-          uri: https://github.com/soulaimane/config-repo  # ? ton repo Git central
+          uri: https://https://github.com/soulayman-03/config-repo  # ? ton repo Git central
           clone-on-start: true
           default-label: main
 
