@@ -51,6 +51,7 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
+
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>
@@ -76,10 +77,9 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
-            <!-- ✅ MySQL Connector (pour le profil prod) -->
             <dependency>
-                <groupId>com.mysql</groupId>
-                <artifactId>mysql-connector-j</artifactId>
+                <groupId>mysql</groupId>
+                <artifactId>mysql-connector-java</artifactId>
                 <scope>runtime</scope>
             </dependency>
 		</dependencies>

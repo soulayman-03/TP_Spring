@@ -4,16 +4,6 @@ server:
 spring:
   application:
     name: product-composite-service
-  cloud:
-    loadbalancer:
-      ribbon:
-        enabled: false
-      retry:
-        enabled: true
-      configurations:
-        default:
-          enabled: true
-
 
 eureka:
   client:
@@ -39,15 +29,16 @@ management:
     circuitbreakers:
       enabled: true
   endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
     health:
       show-details: always
-
-logging:
-  level:
-    io.github.resilience4j.circuitbreaker: DEBUG
-    org.springframework.cloud.loadbalancer: DEBUG
-    org.springframework.web: INFO
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}

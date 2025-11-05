@@ -2,6 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/product-composite-service/product-composite-service.iml" filepath="$PROJECT_DIR$/product-composite-service/product-composite-service.iml" />
+      <module fileurl="file://$PROJECT_DIR$/product-service/product-service.iml" filepath="$PROJECT_DIR$/product-service/product-service.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/tp_Spring.iml" filepath="$PROJECT_DIR$/.idea/tp_Spring.iml" />
     </modules>
   </component>

@@ -4,13 +4,15 @@ server:
 spring:
   application:
     name: config-server
+
   cloud:
     config:
       server:
         git:
-          uri: https://https://github.com/soulayman-03/config-repo  # ? ton repo Git central
-          clone-on-start: true
+          uri: https://github.com/soulayman-03/config-repo
           default-label: main
+          clone-on-start: true
+          skip-ssl-validation: true
 
 eureka:
   client:

@@ -4,13 +4,15 @@ import com.example.product_composite_service.client.ProductClient;
 import com.example.product_composite_service.client.ReviewClient;
 import com.example.product_composite_service.client.RecommendationClient;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/product-composite")
@@ -25,92 +27,111 @@ public class ProductCompositeController {
     @Value("${server.port}")
     private int port;
 
-    // ✅ GET - produit complet (déjà existant)
     @GetMapping("/{productId}")
-    @CircuitBreaker(name = "compositeBreaker", fallbackMethod = "fallbackComposite")
     public Map<String, Object> getProductComposite(@PathVariable Long productId) {
-        Map<String, Object> result = new HashMap<>();
-        result.put("instancePort", port);
-        result.put("product", productClient.getProduct(productId));
-        result.put("reviews", reviewClient.getReviews(productId));
-        result.put("recommendations", recommendationClient.getRecommendations(productId));
+        log.info("➡️ [Composite:{}] Appel du produit complet pour ID {}", port, productId);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("compositeInstancePort", port);
+
+        // 🧩 1️⃣ Product Service avec son propre disjoncteur
+        var product = getProductSafe(productId);
+        result.put("product", product);
+        result.put("productServiceInstance", extractInstancePort(product));
+
+        // 🧩 2️⃣ Review Service avec son propre disjoncteur
+        var reviews = getReviewsSafe(productId);
+        result.put("reviews", reviews);
+        result.put("reviewServiceInstances", extractInstancePortsList(reviews));
+
+        // 🧩 3️⃣ Recommendation Service avec son propre disjoncteur
+        var recommendations = getRecommendationsSafe(productId);
+        result.put("recommendations", recommendations);
+        result.put("recommendationServiceInstances", extractInstancePortsList(recommendations));
+
         return result;
     }
 
-    // 🩹 Méthode de secours appelée si un des microservices échoue
-    private Map<String, Object> fallbackComposite(Long productId, Throwable ex) {
-        log.error("⚠️ Circuit Breaker triggered for productId {}: {}", productId, ex.getMessage());
-
-        Map<String, Object> fallbackResponse = new HashMap<>();
-        fallbackResponse.put("instancePort", port);
-        fallbackResponse.put("message", "⚠️ Service temporarily unavailable (fallback activated)");
-        fallbackResponse.put("productId", productId);
-        fallbackResponse.put("error", ex.getClass().getSimpleName());
-        fallbackResponse.put("details", ex.getMessage());
-
-        return fallbackResponse;
-    }
-
-    // ✅ GET - produit seul
-    @GetMapping("/products/{productId}")
-    public Map<String, Object> getProductOnly(@PathVariable Long productId) {
+    // =================================================================
+    // 1️⃣ Product Service avec disjoncteur dédié
+    // =================================================================
+    @CircuitBreaker(name = "productServiceBreaker", fallbackMethod = "fallbackProduct")
+    @TimeLimiter(name = "productServiceBreaker")
+    @Retry(name = "productServiceBreaker")
+    public Map<String, Object> getProductSafe(Long productId) {
         return productClient.getProduct(productId);
     }
 
-    // ✅ GET - avis d’un produit
-    @GetMapping("/reviews/{productId}")
-    public List<Map<String, Object>> getReviewsByProduct(@PathVariable Long productId) {
+    public Map<String, Object> fallbackProduct(Long productId, Throwable ex) {
+        log.error("⚠️ Fallback activé pour product-service (ID={}): {}", productId, ex.getMessage());
+        return Map.of(
+                "productId", productId,
+                "name", "Produit indisponible",
+                "weight", 0,
+                "instancePort", "fallback"
+        );
+    }
+
+    // =================================================================
+    // 2️⃣ Review Service avec disjoncteur dédié
+    // =================================================================
+    @CircuitBreaker(name = "reviewServiceBreaker", fallbackMethod = "fallbackReviews")
+    @TimeLimiter(name = "reviewServiceBreaker")
+    @Retry(name = "reviewServiceBreaker")
+    public List<Map<String, Object>> getReviewsSafe(Long productId) {
         return reviewClient.getReviews(productId);
     }
 
-    // ✅ GET - recommandations d’un produit
-    @GetMapping("/recommendations/{productId}")
-    public List<Map<String, Object>> getRecommendationsByProduct(@PathVariable Long productId) {
+    public List<Map<String, Object>> fallbackReviews(Long productId, Throwable ex) {
+        log.warn("⚠️ Fallback activé pour review-service (ID={}): {}", productId, ex.getMessage());
+        return List.of(Map.of(
+                "reviewId", -1,
+                "author", "fallback",
+                "subject", "Aucun avis disponible",
+                "instancePort", "fallback"
+        ));
+    }
+
+    // =================================================================
+    // 3️⃣ Recommendation Service avec disjoncteur dédié
+    // =================================================================
+    @CircuitBreaker(name = "recommendationServiceBreaker", fallbackMethod = "fallbackRecommendations")
+    @TimeLimiter(name = "recommendationServiceBreaker")
+    @Retry(name = "recommendationServiceBreaker")
+    public List<Map<String, Object>> getRecommendationsSafe(Long productId) {
         return recommendationClient.getRecommendations(productId);
     }
 
-    // ✅ POST - créer produit complet
-    @PostMapping
-    public Map<String, Object> createComposite(@RequestBody Map<String, Object> body) {
-        Map<String, Object> product = (Map<String, Object>) body.get("product");
-        List<Map<String, Object>> reviews = (List<Map<String, Object>>) body.get("reviews");
-        List<Map<String, Object>> recommendations = (List<Map<String, Object>>) body.get("recommendations");
-
-        // Création du produit
-        Map<String, Object> savedProduct = productClient.createProduct(product);
-        Long productId = ((Number) savedProduct.get("productId")).longValue();
-
-        // Création des sous-éléments
-        if (reviews != null) {
-            for (Map<String, Object> r : reviews) {
-                r.put("productId", productId);
-                reviewClient.createReview(r);
-            }
-        }
-
-        if (recommendations != null) {
-            for (Map<String, Object> rec : recommendations) {
-                rec.put("productId", productId);
-                recommendationClient.createRecommendation(rec);
-            }
-        }
-
-        return Map.of("message", "Product composite created successfully", "productId", productId);
+    public List<Map<String, Object>> fallbackRecommendations(Long productId, Throwable ex) {
+        log.warn("⚠️ Fallback activé pour recommendation-service (ID={}): {}", productId, ex.getMessage());
+        return List.of(Map.of(
+                "recommendationId", -1,
+                "author", "fallback",
+                "content", "Aucune recommandation disponible",
+                "instancePort", "fallback"
+        ));
     }
 
-    // ✅ DELETE - supprimer produit complet
-    @DeleteMapping("/{productId}")
-    public Map<String, Object> deleteComposite(@PathVariable Long productId) {
-        var reviews = reviewClient.getReviews(productId);
-        var recos = recommendationClient.getRecommendations(productId);
+    // ============================================================
+    // Utilitaires
+    // ============================================================
+    private String extractInstancePort(Object response) {
+        if (response instanceof Map<?, ?> map && map.containsKey("instancePort")) {
+            return String.valueOf(map.get("instancePort"));
+        }
+        return "unknown";
+    }
 
-        // Supprime les dépendances
-        reviews.forEach(r -> reviewClient.deleteReview(((Number) r.get("reviewId")).longValue()));
-        recos.forEach(r -> recommendationClient.deleteRecommendation(((Number) r.get("recommendationId")).longValue()));
-
-        // Supprime le produit
-        productClient.deleteProduct(productId);
-
-        return Map.of("message", "Product composite deleted successfully", "productId", productId);
+    private List<String> extractInstancePortsList(Object responseList) {
+        if (responseList instanceof List<?> list) {
+            List<String> ports = new ArrayList<>();
+            for (Object obj : list) {
+                if (obj instanceof Map<?, ?> map && map.containsKey("instancePort")) {
+                    ports.add(String.valueOf(map.get("instancePort")));
+                }
+            }
+            return ports;
+        }
+        return List.of("unknown");
     }
 }
